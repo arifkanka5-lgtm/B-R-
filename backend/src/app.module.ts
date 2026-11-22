@@ -1,3 +1,4 @@
+import { AdminModule } from './admin/admin.module.js';
 import { Module } from '@nestjs/common';
 import { GiftsModule } from './gifts/gifts.module.js';
 import { createObserveModule } from '@nestjs/observe';
@@ -21,6 +22,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       serviceId: 'backend',
     }),
     AuthModule,
+    AdminModule,
     RoomsModule,
     LivekitModule,
     WalletModule,
