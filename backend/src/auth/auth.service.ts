@@ -4,7 +4,6 @@ import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { pgPool } from '../prisma/pg-pool.js';
 import { randomUUID } from 'node:crypto';
-import { db } from '../prisma/db.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
@@ -146,72 +145,75 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
-    const existing = await db.orm.public.User.where({ email }).first();
-
-    if (existing) {
-      throw new ConflictException('Bu e-posta zaten kayıtlı.');
-    }
+    const existing = await pgPool.query<{ id: number }>(
+      'SELECT id FROM "User" WHERE email = $1 LIMIT 1', [email],
+    );
+    if (existing.rows.length) throw new ConflictException('Bu e-posta zaten kayıtlı.');
 
     const passwordHash = await argon2.hash(dto.password);
-    const user = await db.orm.public.User.create({
-      email,
-      passwordHash,
-      publicId: randomUUID(),
-      name: dto.name ?? null,
-    });
-
-    return {
-      id: user.id,
-      publicId: user.publicId,
-      email: user.email,
-      name: user.name,
-    };
+    try {
+      const result = await pgPool.query<{
+        id: number; publicId: string; email: string; name: string | null;
+      }>(
+        `INSERT INTO "User"
+           ("publicId", email, name, "passwordHash", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, NOW(), NOW())
+         RETURNING id, "publicId", email, name`,
+        [randomUUID(), email, dto.name ?? null, passwordHash],
+      );
+      const user = result.rows[0];
+      if (!user) throw new ServiceUnavailableException('Kullanıcı oluşturulamadı.');
+      return user;
+    } catch (error: unknown) {
+      if ((error as { code?: string }).code === '23505') {
+        throw new ConflictException('Bu e-posta zaten kayıtlı.');
+      }
+      throw error;
+    }
   }
 
   async login(dto: LoginDto) {
     const email = dto.email.trim().toLowerCase();
-    const user = await db.orm.public.User.where({ email }).first();
-
+    const result = await pgPool.query<{
+      id: number; publicId: string; email: string; name: string | null;
+      passwordHash: string | null; isActive: boolean;
+    }>(
+      `SELECT id, "publicId", email, name, "passwordHash", "isActive"
+       FROM "User" WHERE email = $1 LIMIT 1`,
+      [email],
+    );
+    const user = result.rows[0];
     if (!user || !user.passwordHash || !user.isActive ||
         !(await argon2.verify(user.passwordHash, dto.password))) {
-      throw new UnauthorizedException('E-posta veya sifre hatali.');
+      throw new UnauthorizedException('E-posta veya şifre hatalı.');
     }
-
     const accessToken = await this.jwtService.signAsync({
-      sub: user.publicId,
-      userId: user.id,
+      sub: user.publicId, userId: user.id,
     });
-
     return {
-      accessToken,
-      tokenType: 'Bearer',
-      user: {
-        id: user.id,
-        publicId: user.publicId,
-        email: user.email,
-        name: user.name,
-      },
+      accessToken, tokenType: 'Bearer',
+      user: { id: user.id, publicId: user.publicId, email: user.email, name: user.name },
     };
   }
 
-
   async getProfile(publicId: string) {
-    const user = await db.orm.public.User.where({ publicId }).first();
-
+    const result = await pgPool.query<{
+      id: number; publicId: string; email: string; name: string | null;
+      username: string | null; avatarUrl: string | null; bio: string | null;
+      level: number; isActive: boolean;
+    }>(
+      `SELECT id, "publicId", email, name, username, "avatarUrl", bio, level, "isActive"
+       FROM "User" WHERE "publicId" = $1 LIMIT 1`,
+      [publicId],
+    );
+    const user = result.rows[0];
     if (!user || !user.isActive) {
-      throw new UnauthorizedException('Kullanici bulunamadi veya pasif.');
+      throw new UnauthorizedException('Kullanıcı bulunamadı veya pasif.');
     }
-
     return {
-      id: user.id,
-      publicId: user.publicId,
-      email: user.email,
-      name: user.name,
-      username: user.username,
-      avatarUrl: user.avatarUrl,
-      bio: user.bio,
-      level: user.level,
-      platformRole: getPlatformRole(user.publicId),
+      id: user.id, publicId: user.publicId, email: user.email, name: user.name,
+      username: user.username, avatarUrl: user.avatarUrl, bio: user.bio,
+      level: user.level, platformRole: getPlatformRole(user.publicId),
     };
   }
 
@@ -249,29 +251,46 @@ export class AuthService {
   }
 
   async updateProfile(publicId: string, dto: UpdateProfileDto) {
-    const user = await db.orm.public.User.where({ publicId }).first();
-
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Kullanici bulunamadi veya pasif.');
-    }
-
-    if (dto.username !== undefined && dto.username !== user.username) {
-      const existing = await db.orm.public.User.where({
-        username: dto.username,
-      }).first();
-
-      if (existing) {
-        throw new ConflictException('Bu kullanici adi zaten alinmis.');
+    const profile = await this.getProfile(publicId);
+    if (dto.username !== undefined && dto.username !== profile.username) {
+      const existing = await pgPool.query<{ id: number }>(
+        'SELECT id FROM "User" WHERE username = $1 AND "publicId" <> $2 LIMIT 1',
+        [dto.username, publicId],
+      );
+      if (existing.rows.length) {
+        throw new ConflictException('Bu kullanıcı adı zaten alınmış.');
       }
     }
 
-    const updated = await db.orm.public.User.where({ publicId }).update({
-      ...(dto.username !== undefined ? { username: dto.username } : {}),
-      ...(dto.name !== undefined ? { name: dto.name } : {}),
-      ...(dto.bio !== undefined ? { bio: dto.bio } : {}),
-      ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
-    });
-
+    const updates: string[] = [];
+    const values: string[] = [];
+    const allowed: Array<[string, string | undefined]> = [
+      ['username', dto.username],
+      ['name', dto.name],
+      ['bio', dto.bio],
+      ['avatarUrl', dto.avatarUrl],
+    ];
+    for (const [column, value] of allowed) {
+      if (value !== undefined) {
+        values.push(value);
+        updates.push(`"${column}" = $${values.length}`);
+      }
+    }
+    if (updates.length) {
+      values.push(publicId);
+      try {
+        await pgPool.query(
+          `UPDATE "User" SET ${updates.join(', ')}, "updatedAt" = NOW()
+           WHERE "publicId" = $${values.length}`,
+          values,
+        );
+      } catch (error: unknown) {
+        if ((error as { code?: string }).code === '23505') {
+          throw new ConflictException('Bu kullanıcı adı zaten alınmış.');
+        }
+        throw error;
+      }
+    }
     return this.getProfile(publicId);
   }
 

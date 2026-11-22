@@ -2,7 +2,9 @@ import 'dotenv/config';
 import pg from 'pg';
 
 const { Pool } = pg;
-const rawUrl = process.env['DATABASE_URL']?.trim();
+// The Render backend and PostgreSQL service may be in different regions.
+// Use the verified external endpoint when provided; do not rely on internal DNS.
+const rawUrl = process.env['DATABASE_EXTERNAL_URL']?.trim() || process.env['DATABASE_URL']?.trim();
 if (!rawUrl) throw new Error('DATABASE_URL is missing');
 
 let dbUrl: URL;
