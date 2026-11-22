@@ -78,21 +78,15 @@ export class RoomsService {
   }
 
   async listRooms() {
-    const rooms = await db.orm.public.Room
-      .where({ isActive: true })
-      .select(
-        'id',
-        'publicId',
-        'name',
-        'description',
-        'ownerId',
-        'capacity',
-        'isPrivate',
-        'isActive',
-      )
-      .all();
+    const result = await pgPool.query(
+      `SELECT id, "publicId", name, description,
+              "ownerId", capacity, "isPrivate", "isActive"
+       FROM "Room"
+       WHERE "isActive" = true
+       ORDER BY id DESC`
+    );
 
-    return rooms;
+    return result.rows;
   }
 
 
