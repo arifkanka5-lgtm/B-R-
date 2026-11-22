@@ -16,6 +16,9 @@ export class LivekitController {
       roomPublicId,
       request.user.sub,
     );
-    return { token };
+    return {
+      token,
+      url: process.env.LIVEKIT_URL,
+    };
   }
 }
