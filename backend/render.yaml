@@ -1,0 +1,25 @@
+databases:
+  - name: br-backend-db
+    plan: free
+    databaseName: br_database
+    user: br_user
+
+services:
+  - type: web
+    name: br-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: br-backend-db
+          property: connectionString
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
