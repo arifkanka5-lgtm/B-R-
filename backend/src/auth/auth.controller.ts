@@ -4,6 +4,7 @@ import { Body, Controller, Post, Get, UseGuards, Req, Patch } from '@nestjs/comm
 import { AuthService } from './auth.service.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { GoogleLoginDto } from './dto/google-login.dto.js';
 
 @Controller('auth')
 export class AuthController {
@@ -13,6 +14,11 @@ export class AuthController {
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
+  @Post('google')
+  google(@Body() dto: GoogleLoginDto) {
+    return this.authService.googleLogin(dto.idToken);
+  }
+
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

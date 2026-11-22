@@ -1,0 +1,32 @@
+# Gizli bilgiler
+**/.env
+**/.env.*
+!**/.env.example
+**/*.jks
+**/*.keystore
+**/key.properties
+**/local.properties
+
+# APK ve arsivler
+*.apk
+*.aab
+*.zip
+*.bak
+
+# Yedekler ve kurulum paketleri
+**/.boru_*_backup/
+**/boru_*_package/
+**/BORU_V*_TEMA_KUR.sh
+
+# Flutter ve Android gecici dosyalari
+**/.dart_tool/
+**/build/
+**/.gradle/
+**/.idea/
+**/.vscode/
+**/.flutter-plugins-dependencies
+
+# Eski kaynak kodu yedekleri
+**/*.before-*
+**/*.theme-backup
+**/*.vip-backup
