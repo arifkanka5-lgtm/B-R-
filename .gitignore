@@ -30,3 +30,9 @@
 **/*.before-*
 **/*.theme-backup
 **/*.vip-backup
+
+# BÖRÜ kurulum paketleri ve yerel kaynak yedekleri
+.boru_v14_backup/
+.boru_v15_backup/
+boru_v14_package/
+boru_v15_package/

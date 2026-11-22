@@ -8,6 +8,8 @@ import {
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { getPlatformRole } from '../auth/platform-roles.js';
 import type { Server, Socket } from 'socket.io';
 import { pgPool } from '../prisma/pg-pool.js';
 import { RoomsService } from './rooms.service.js';
@@ -90,6 +92,73 @@ export class RoomsGateway implements OnGatewayConnection {
     client.emit('room:seats', seats);
 
     return { joined: true };
+  }
+
+  // Metin sohbeti: yalnızca odaya katılmış ve hâlâ aktif üyeler mesaj gönderebilir.
+  // Mesaj geçmişi bu sürümde kalıcı değildir.
+  @SubscribeMessage('room:message')
+  async roomMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomPublicId?: string; text?: string },
+  ) {
+    const userPublicId = client.data.userPublicId as string | undefined;
+    const roomPublicId = data?.roomPublicId;
+    const text = typeof data?.text === 'string' ? data.text.trim() : '';
+
+    if (!userPublicId || typeof roomPublicId !== 'string' ||
+        !client.rooms.has(this.channel(roomPublicId)) ||
+        text.length === 0 || text.length > 300) {
+      client.emit('room:error', { message: 'Geçersiz sohbet mesajı veya oda yetkisi.' });
+      return;
+    }
+
+    const now = Date.now();
+    const previous = (client.data.lastRoomMessageAt as number | undefined) ?? 0;
+    if (now - previous < 1000) {
+      client.emit('room:error', { message: 'Mesaj göndermek için biraz bekleyin.' });
+      return;
+    }
+    client.data.lastRoomMessageAt = now;
+
+    try {
+      const result = await pgPool.query<{
+        senderPublicId: string;
+        senderName: string;
+        senderAvatarUrl: string | null;
+        roomRole: string;
+      }>(
+        `SELECT u."publicId" AS "senderPublicId",
+                COALESCE(NULLIF(u.name, ''), NULLIF(u.username, ''), 'Kullanıcı') AS "senderName",
+                u."avatarUrl" AS "senderAvatarUrl",
+                CASE WHEN r."ownerId" = u.id THEN 'OWNER' ELSE m.role END AS "roomRole"
+         FROM "User" u
+         JOIN "RoomMembership" m ON m."userId" = u.id
+         JOIN "Room" r ON r.id = m."roomId"
+         WHERE u."publicId" = $1 AND r."publicId" = $2
+           AND u."isActive" = true AND r."isActive" = true
+         LIMIT 1`,
+        [userPublicId, roomPublicId],
+      );
+      const sender = result.rows[0];
+      if (!sender) {
+        client.emit('room:error', { message: 'Sohbet için oda üyeliğiniz bulunamadı.' });
+        return;
+      }
+
+      this.server.to(this.channel(roomPublicId)).emit('room:message', {
+        id: randomUUID(),
+        roomPublicId,
+        senderPublicId: sender.senderPublicId,
+        senderName: sender.senderName,
+        senderAvatarUrl: sender.senderAvatarUrl,
+        platformRole: getPlatformRole(sender.senderPublicId),
+        roomRole: sender.roomRole,
+        text,
+        sentAt: new Date().toISOString(),
+      });
+    } catch {
+      client.emit('room:error', { message: 'Mesaj gönderilemedi. Tekrar deneyin.' });
+    }
   }
 
   async broadcastRoomSeats(roomPublicId: string) {

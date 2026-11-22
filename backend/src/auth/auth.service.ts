@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException, ServiceUnavailableException, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
@@ -8,6 +8,7 @@ import { db } from '../prisma/db.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { getPlatformRole } from './platform-roles.js';
 
 @Injectable()
 export class AuthService {
@@ -210,9 +211,42 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       bio: user.bio,
       level: user.level,
+      platformRole: getPlatformRole(user.publicId),
     };
   }
 
+  // Başkalarının profili: e-posta, bakiye ve özel bilgiler paylaşılmaz.
+  async getPublicProfile(publicId: string, roomPublicId?: string) {
+    const result = await pgPool.query<{
+      publicId: string;
+      username: string | null;
+      name: string | null;
+      avatarUrl: string | null;
+      bio: string | null;
+      level: number;
+    }>(
+      `SELECT "publicId", username, name, "avatarUrl", bio, level
+       FROM "User" WHERE "publicId" = $1 AND "isActive" = true LIMIT 1`,
+      [publicId],
+    );
+    const user = result.rows[0];
+    if (!user) throw new NotFoundException('Kullanıcı profili bulunamadı.');
+
+    let roomRole: string | null = null;
+    if (roomPublicId) {
+      const membership = await pgPool.query<{ role: string }>(
+        `SELECT CASE WHEN r."ownerId" = u.id THEN 'OWNER' ELSE m.role END AS role
+         FROM "RoomMembership" m
+         JOIN "Room" r ON r.id = m."roomId" AND r."isActive" = true
+         JOIN "User" u ON u.id = m."userId"
+         WHERE r."publicId" = $1 AND u."publicId" = $2 LIMIT 1`,
+        [roomPublicId, publicId],
+      );
+      roomRole = membership.rows[0]?.role ?? null;
+    }
+
+    return { ...user, platformRole: getPlatformRole(publicId), roomRole };
+  }
 
   async updateProfile(publicId: string, dto: UpdateProfileDto) {
     const user = await db.orm.public.User.where({ publicId }).first();

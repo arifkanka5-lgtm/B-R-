@@ -110,19 +110,83 @@ class BoruThemeController extends ChangeNotifier {
 
   ThemeData get materialTheme {
     final palette = appPalette;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: palette.accent,
+      brightness: Brightness.dark,
+    ).copyWith(
+      surface: palette.surface,
+      primary: palette.accent,
+      secondary: palette.secondary,
+      onPrimary: Colors.black87,
+      onSurface: Colors.white,
+    );
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: palette.background,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: palette.accent,
-        brightness: Brightness.dark,
-      ).copyWith(surface: palette.surface, primary: palette.accent),
+      colorScheme: scheme,
+      visualDensity: VisualDensity.adaptivePlatformDensity,
       appBarTheme: AppBarThemeData(
-        backgroundColor: palette.surface,
+        backgroundColor: palette.background,
         foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
       ),
       cardColor: palette.surface,
+      cardTheme: CardThemeData(
+        color: palette.surface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: palette.accent.withValues(alpha: 0.17)),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: palette.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: palette.accent, width: 1.5),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: palette.accent,
+          foregroundColor: Colors.black87,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: palette.accent,
+          foregroundColor: Colors.black87,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: palette.surface,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: palette.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
     );
   }
 }

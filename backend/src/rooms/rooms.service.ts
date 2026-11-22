@@ -8,6 +8,7 @@ import { CreateRoomDto } from './dto/create-room.dto.js';
 import { AssignRoomRoleDto } from './dto/assign-room-role.dto.js';
 import { KickRoomMemberDto } from './dto/kick-room-member.dto.js';
 import { TransferRoomOwnerDto } from './dto/transfer-room-owner.dto.js';
+import { getPlatformRole } from '../auth/platform-roles.js';
 
 @Injectable()
 export class RoomsService {
@@ -257,15 +258,24 @@ export class RoomsService {
     const result = await pgPool.query(
       `SELECT s."seatNumber", s."userId", s."isLocked",
               u."publicId" AS "userPublicId",
-              u.name, u.username, u."avatarUrl"
+              u.name, u.username, u."avatarUrl",
+              CASE WHEN r."ownerId" = u.id THEN 'OWNER' ELSE m.role END AS "roomRole"
        FROM "RoomSeat" s
+       JOIN "Room" r ON r.id = s."roomId"
        LEFT JOIN "User" u ON u.id = s."userId"
+       LEFT JOIN "RoomMembership" m ON m."roomId" = s."roomId" AND m."userId" = s."userId"
        WHERE s."roomId" = $1
        ORDER BY s."seatNumber"`,
       [roomId],
     );
 
-    return { roomPublicId, seats: result.rows };
+    return {
+      roomPublicId,
+      seats: result.rows.map((seat) => ({
+        ...seat,
+        platformRole: seat.userPublicId ? getPlatformRole(seat.userPublicId) : 'USER',
+      })),
+    };
   }
 
   async sitOnSeat(userPublicId: string, roomPublicId: string, seatNumber: number) {
@@ -469,6 +479,7 @@ export class RoomsService {
           level: user.level,
           joinedAt: membership.joinedAt,
           role: user.id === room.ownerId ? 'OWNER' : membership.role,
+          platformRole: getPlatformRole(user.publicId),
           isOwner: user.id === room.ownerId,
         };
       }),

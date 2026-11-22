@@ -9,6 +9,8 @@ class BoruSocketService {
     required String roomPublicId,
     required String accessToken,
     required void Function(Map<String, dynamic>) onSeats,
+    required void Function(Map<String, dynamic>) onMessage,
+    required void Function(String) onError,
   }) {
     disconnect();
 
@@ -35,7 +37,27 @@ class BoruSocketService {
       }
     });
 
+    socket.on('room:message', (dynamic data) {
+      if (data is Map) onMessage(Map<String, dynamic>.from(data));
+    });
+
+    socket.on('room:error', (dynamic data) {
+      if (data is Map) {
+        onError(data['message']?.toString() ?? 'Oda işlemi başarısız.');
+      }
+    });
+
     socket.connect();
+  }
+
+  void sendMessage({required String roomPublicId, required String text}) {
+    if (_socket?.connected != true) {
+      throw StateError('Sohbet bağlantısı kurulamadı. Tekrar deneyin.');
+    }
+    _socket!.emit('room:message', {
+      'roomPublicId': roomPublicId,
+      'text': text,
+    });
   }
 
   void disconnect() {

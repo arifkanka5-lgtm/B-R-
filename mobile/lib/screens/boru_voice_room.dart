@@ -1,5 +1,8 @@
 import '../core/boru_config.dart';
 import 'boru_gift_shop.dart';
+import 'boru_user_profile.dart';
+import 'boru_room_chat_sheet.dart';
+import '../widgets/boru_role_badge.dart';
 import '../theme/boru_theme.dart';
 
 import 'package:livekit_client/livekit_client.dart' as lk;
@@ -60,6 +63,7 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
   final tokenService = BoruLivekitService();
   final roomsService = BoruRoomsService();
   final socketService = BoruSocketService();
+  final ValueNotifier<List<Map<String, dynamic>>> chatMessages = ValueNotifier([]);
 
   lk.EventsListener<lk.RoomEvent>? roomListener;
 
@@ -131,6 +135,14 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
             seatsLoading = false;
           });
         },
+        onMessage: (message) {
+          if (!mounted || leaving) return;
+          final next = [...chatMessages.value, message];
+          chatMessages.value = next.length > 100
+              ? next.sublist(next.length - 100)
+              : next;
+        },
+        onError: _message,
       );
     } catch (e) {
       if (!mounted) return;
@@ -176,43 +188,82 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _openUserProfile(String userPublicId) async {
+    if (!mounted || userPublicId.isEmpty) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BoruUserProfilePage(
+          userPublicId: userPublicId,
+          accessToken: widget.accessToken,
+          roomPublicId: widget.roomPublicId,
+          currentUserPublicId: widget.currentUserPublicId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openChat() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: const Color(0xFF171229),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetContext).bottom),
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * 0.60,
+          child: BoruRoomChatSheet(
+            messages: chatMessages,
+            currentUserPublicId: widget.currentUserPublicId,
+            onSend: (text) => socketService.sendMessage(
+              roomPublicId: widget.roomPublicId,
+              text: text,
+            ),
+            onOpenProfile: _openUserProfile,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _leaveMySeat() async {
+    try {
+      await roomsService.leaveSeat(
+        roomPublicId: widget.roomPublicId,
+        accessToken: widget.accessToken,
+      );
+      await _refreshSeats(showLoading: false);
+      _message('Mikrofon koltuğundan kalktınız.');
+    } catch (error) {
+      _message(error.toString());
+    }
+  }
+
   Future<void> _handleSeatTap(Map<String, dynamic> seat) async {
     if (leaving) return;
-
-    final seatNumber = seat['seatNumber'] as int;
     final userPublicId = seat['userPublicId']?.toString();
-    final localIdentity = voiceService.room?.localParticipant?.identity;
-    final isLocked = seat['isLocked'] == true;
+    if (userPublicId != null && userPublicId.isNotEmpty) {
+      await _openUserProfile(userPublicId);
+      return;
+    }
 
-    if (isLocked) {
+    if (seat['isLocked'] == true) {
       _message('Bu koltuk kilitli.');
       return;
     }
 
     try {
-      if (userPublicId == localIdentity) {
-        await roomsService.leaveSeat(
-          roomPublicId: widget.roomPublicId,
-          accessToken: widget.accessToken,
-        );
-
-        _message('Koltuğunuzdan kalktınız.');
-      } else if (userPublicId == null) {
-        await roomsService.sitOnSeat(
-          roomPublicId: widget.roomPublicId,
-          seatNumber: seatNumber,
-          accessToken: widget.accessToken,
-        );
-
-        _message('$seatNumber numaralı koltuğa oturdunuz.');
-      } else {
-        _message('Bu koltuk başka bir kullanıcıya ait.');
-        return;
-      }
-
+      final seatNumber = seat['seatNumber'] as int;
+      await roomsService.sitOnSeat(
+        roomPublicId: widget.roomPublicId,
+        seatNumber: seatNumber,
+        accessToken: widget.accessToken,
+      );
       await _refreshSeats(showLoading: false);
-    } catch (e) {
-      _message(e.toString());
+      _message('$seatNumber numaralı koltuğa oturdunuz.');
+    } catch (error) {
+      _message(error.toString());
       await _refreshSeats(showLoading: false);
     }
   }
@@ -398,7 +449,9 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
     return GestureDetector(
       onTap: () => _handleSeatTap(seat),
       onLongPress: () => _toggleSeatLock(seat),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 10),
         decoration: BoxDecoration(
           color: seatColor,
@@ -478,10 +531,23 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
               ),
             ),
             const SizedBox(height: 3),
-            Text(
-              isMe ? 'Siz' : 'Koltuk $seatNumber',
-              style: const TextStyle(color: Colors.white60, fontSize: 10),
-            ),
+            if (BoruRoleBadge.hasBadge(
+              seat['platformRole']?.toString(),
+              seat['roomRole']?.toString(),
+            ))
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: BoruRoleBadge(
+                  platformRole: seat['platformRole']?.toString(),
+                  roomRole: seat['roomRole']?.toString(),
+                  compact: true,
+                ),
+              )
+            else
+              Text(
+                isMe ? 'Siz' : 'Koltuk $seatNumber',
+                style: const TextStyle(color: Colors.white60, fontSize: 10),
+              ),
           ],
         ),
       ),
@@ -491,6 +557,7 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
   @override
   void dispose() {
     socketService.disconnect();
+    chatMessages.dispose();
     roomListener?.dispose();
     voiceService.disconnect();
     super.dispose();
@@ -646,25 +713,37 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
           automaticallyImplyLeading: false,
           actions: [
             IconButton(
-              tooltip: 'Uygulama ve oda temalari',
-              icon: const Icon(Icons.palette_outlined),
-              onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const BoruThemeSettingsPage(),
-                  ),
-                );
-                if (mounted) setState(() {});
+              tooltip: 'Oda sohbeti',
+              icon: const Icon(Icons.forum_outlined),
+              onPressed: leaving ? null : _openChat,
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Oda seçenekleri',
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (value) async {
+                if (value == 'theme') {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const BoruThemeSettingsPage(),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                } else if (value == 'refresh') {
+                  await _refreshSeats();
+                } else if (value == 'leave_seat') {
+                  await _leaveMySeat();
+                } else if (value == 'exit') {
+                  await leaveRoom();
+                }
               },
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Koltukları yenile',
-              onPressed: leaving ? null : () => _refreshSeats(),
-            ),
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: leaving ? null : leaveRoom,
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'theme', child: Text('Görünüm ve temalar')),
+                const PopupMenuItem(value: 'refresh', child: Text('Koltukları yenile')),
+                if (seats.any((seat) =>
+                    seat['userPublicId'] == widget.currentUserPublicId))
+                  const PopupMenuItem(value: 'leave_seat', child: Text('Koltuktan kalk')),
+                const PopupMenuItem(value: 'exit', child: Text('Odadan ayrıl')),
+              ],
             ),
           ],
         ),
@@ -787,7 +866,7 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                           ),
                           const SizedBox(height: 13),
                           const Text(
-                            'KRALLARIN BULUŞMA NOKTASI',
+                            'SESİNLE SAHNEYE ÇIK',
                             style: TextStyle(
                               color: Colors.white60,
                               fontSize: 9,
@@ -800,7 +879,7 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 5),
                       child: Text(
-                        'PREMIUM SEATING',
+                        'MİKROFON SAHNESİ',
                         style: TextStyle(
                           color: Color(0xFFFFD36A),
                           fontSize: 12,
@@ -810,7 +889,7 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                       ),
                     ),
                     const Text(
-                      'Oturmak istediğiniz koltuğu seçin',
+                      'Boş koltuğa dokunarak sohbete katıl',
                       style: TextStyle(color: Colors.white70, fontSize: 11),
                     ),
                     const SizedBox(height: 8),
@@ -826,9 +905,9 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                         children: [
                           for (final theme in [
                             (0, 'Standart'),
-                            (1, 'VIP'),
-                            (2, 'SVIP'),
-                            (3, 'ROYAL'),
+                            (1, 'Mavi'),
+                            (2, 'Bordo'),
+                            (3, 'Mor'),
                           ])
                             ChoiceChip(
                               label: Text(theme.$2),
@@ -868,29 +947,31 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                                 style: TextStyle(color: Colors.white),
                               ),
                             )
-                          : GridView.builder(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 8,
-                              ),
-                              itemCount: seats.length,
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 4,
-                                    crossAxisSpacing: 9,
-                                    mainAxisSpacing: 12,
-                                    childAspectRatio: 0.78,
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                final columns = constraints.maxWidth < 390
+                                    ? 3 : constraints.maxWidth < 650 ? 4 : 5;
+                                return GridView.builder(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8,
                                   ),
-                              itemBuilder: (context, index) {
-                                return _buildSeat(seats[index]);
+                                  itemCount: seats.length,
+                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: columns,
+                                    crossAxisSpacing: 9,
+                                    mainAxisSpacing: 11,
+                                    mainAxisExtent: 130,
+                                  ),
+                                  itemBuilder: (context, index) => _buildSeat(seats[index]),
+                                );
                               },
                             ),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        'Koltuktan kalkmak için kendi koltuğunuza dokunun.\n'
-                        'Yönetici kilitleme için koltuğa basılı tutun.',
+                        'Dolu koltuğa dokun: profil açılır. Kalkmak için üstteki koltuk simgesini kullan.\n'
+                        'Yönetici kilitleme için boş koltuğa basılı tutun.',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white54,
@@ -899,36 +980,59 @@ class _BoruVoiceRoomPageState extends State<BoruVoiceRoomPage> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: 20,
-                        left: 20,
-                        right: 20,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: leaving ? null : toggleMicrophone,
-                              icon: Icon(
-                                microphoneEnabled ? Icons.mic : Icons.mic_off,
-                              ),
-                              label: Text(
-                                microphoneEnabled
-                                    ? 'Mikrofonu kapat'
-                                    : 'Mikrofonu aç',
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: roomPalette.surface,
+                          borderRadius: BorderRadius.circular(21),
+                          border: Border.all(
+                            color: roomPalette.accent.withValues(alpha: 0.32),
+                          ),
+                          boxShadow: const [BoxShadow(
+                            color: Color(0x66000000), blurRadius: 20,
+                          )],
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 48,
+                                child: FilledButton.icon(
+                                  onPressed: leaving ? null : toggleMicrophone,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: microphoneEnabled
+                                        ? const Color(0xFFFF8080)
+                                        : roomPalette.accent,
+                                    foregroundColor: roomPalette.background,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                    ),
+                                  ),
+                                  icon: Icon(microphoneEnabled
+                                      ? Icons.mic_off_rounded : Icons.mic_rounded),
+                                  label: Text(microphoneEnabled
+                                      ? 'MİKROFONU KAPAT' : 'MİKROFONU AÇ',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12,
+                                        letterSpacing: 0.4,
+                                      )),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          IconButton.filled(
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
+                            const SizedBox(width: 10),
+                            IconButton.filled(
+                              tooltip: 'Odadan ayrıl',
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFFAF4052),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: leaving ? null : leaveRoom,
+                              icon: const Icon(Icons.logout_rounded),
                             ),
-                            onPressed: leaving ? null : leaveRoom,
-                            icon: const Icon(Icons.exit_to_app),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],

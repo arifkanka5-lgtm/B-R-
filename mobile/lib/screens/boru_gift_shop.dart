@@ -1,4 +1,5 @@
 import '../services/boru_gift_service.dart';
+import '../theme/boru_theme.dart';
 
 import 'dart:convert';
 
@@ -204,11 +205,11 @@ class _BoruGiftShopState extends State<BoruGiftShop> {
         : gifts.where((g) => g['category'] == category).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF101020),
+      backgroundColor: BoruThemeController.instance.appPalette.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF17172B),
+        backgroundColor: BoruThemeController.instance.appPalette.surface,
         foregroundColor: Colors.white,
-        title: const Text('BÖRÜ Hediye Mağazası'),
+        title: const Text('BÖRÜ • HEDİYELER'),
         actions: [
           IconButton(
             onPressed: loading ? null : loadGifts,
@@ -267,7 +268,7 @@ class _BoruGiftShopState extends State<BoruGiftShop> {
                       final giftCategory = gift['category']?.toString() ?? '';
 
                       return Card(
-                        color: const Color(0xFF22223B),
+                        color: BoruThemeController.instance.appPalette.surface,
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: sending ? null : () => sendSelectedGift(gift),
@@ -278,7 +279,7 @@ class _BoruGiftShopState extends State<BoruGiftShop> {
                               children: [
                                 Icon(
                                   giftIcon(giftCategory),
-                                  color: Colors.amberAccent,
+                                  color: BoruThemeController.instance.appPalette.accent,
                                   size: 52,
                                 ),
                                 const SizedBox(height: 12),
@@ -295,9 +296,9 @@ class _BoruGiftShopState extends State<BoruGiftShop> {
                                 const SizedBox(height: 8),
                                 Text(
                                   '${formatCoins(gift['priceCoins'])} Coin',
-                                  style: const TextStyle(
-                                    color: Colors.amberAccent,
-                                    fontWeight: FontWeight.w600,
+                                  style: TextStyle(
+                                    color: BoruThemeController.instance.appPalette.accent,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ],
