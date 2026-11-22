@@ -43,6 +43,12 @@ class BoruLivekitService {
       throw const FormatException('LiveKit token eksik.');
     }
 
+    final url = decoded['url'];
+
+    if (url is String && url.startsWith('wss://')) {
+      return '\$url|\$token';
+    }
+
     return token;
   }
 }

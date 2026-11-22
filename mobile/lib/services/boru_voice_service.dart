@@ -25,9 +25,19 @@ class BoruVoiceService {
     );
 
     try {
+      final separator = token.indexOf('|');
+
+      final serverUrl = separator > 0
+          ? token.substring(0, separator)
+          : BoruConfig.livekitUrl;
+
+      final accessToken = separator > 0
+          ? token.substring(separator + 1)
+          : token;
+
       await room.connect(
-        BoruConfig.livekitUrl,
-        token,
+        serverUrl,
+        accessToken,
       );
 
       _room = room;
