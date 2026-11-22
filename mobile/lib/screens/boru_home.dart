@@ -1,3 +1,4 @@
+import 'boru_admin_panel.dart';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -790,6 +791,21 @@ class _BoruHomePageState extends State<BoruHomePage> {
         ),
       ),
       const SizedBox(height: 19),
+      if (role == 'SUPER_ADMIN') ...[
+        _profileAction(
+          Icons.admin_panel_settings_outlined,
+          'SUPER ADMIN PANELİ',
+          'Kullanıcı, oda ve yönetim kayıtları',
+          () {
+            final token = widget.authService.accessToken;
+            if (token == null || token.isEmpty) return;
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => BoruAdminPanel(accessToken: token),
+            ));
+          },
+        ),
+        const SizedBox(height: 10),
+      ],
       _profileAction(
         Icons.palette_outlined,
         'Görünüm ve temalar',
